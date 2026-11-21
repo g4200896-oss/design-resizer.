@@ -78,16 +78,109 @@
     });
   }
 
-  // Transparent khali kinare kaat do
-  function trim(img) {
+  function toCanvas(img) {
     const c = document.createElement("canvas");
-    c.width = img.naturalWidth; c.height = img.naturalHeight;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(img, 0, 0);
-    const w = c.width, h = c.height, d = ctx.getImageData(0, 0, w, h).data;
+    c.width = img.naturalWidth || img.width;
+    c.height = img.naturalHeight || img.height;
+    c.getContext("2d").drawImage(img, 0, 0);
+    return c;
+  }
+
+  // ---------- Kya background saada (ek rang) hai? ----------
+  // Kinaron ke pixels check karo. 85%+ ek jaise hon to saada background.
+  function detectSolidBg(d, w, h) {
+    const samples = [];
+    const step = Math.max(1, Math.floor(Math.max(w, h) / 300));
+    for (let x = 0; x < w; x += step) { samples.push(x, (h - 1) * w + x); }
+    for (let y = 0; y < h; y += step) { samples.push(y * w, y * w + w - 1); }
+
+    // Pehle se transparent background?
+    let transparent = 0;
+    for (const p of samples) if (d[p * 4 + 3] < 20) transparent++;
+    if (transparent / samples.length > 0.85) return { type: "transparent" };
+
+    // Median color
+    const ch = [[], [], []];
+    for (const p of samples) for (let k = 0; k < 3; k++) ch[k].push(d[p * 4 + k]);
+    const bg = ch.map(a => a.sort((m, n) => m - n)[a.length >> 1]);
+    let close = 0;
+    for (const p of samples) {
+      const i = p * 4;
+      const dist = Math.hypot(d[i] - bg[0], d[i + 1] - bg[1], d[i + 2] - bg[2]);
+      if (dist < 40) close++;
+    }
+    if (close / samples.length > 0.85) return { type: "solid", bg };
+    return { type: "complex" };
+  }
+
+  // ---------- Saada background hatao (kinaron se flood fill) ----------
+  // Smooth edges ke saath + edge se background ka rang saaf (white halo nahi aata)
+  function removeSolidBg(d, w, h, bg) {
+    const HARD = 28, SOFT = 90;           // HARD tak = poora transparent, HARD..SOFT = smooth edge
+    const visited = new Uint8Array(w * h);
+    const stack = [];
+    for (let x = 0; x < w; x++) stack.push(x, (h - 1) * w + x);
+    for (let y = 0; y < h; y++) stack.push(y * w, y * w + w - 1);
+
+    while (stack.length) {
+      const p = stack.pop();
+      if (visited[p]) continue;
+      visited[p] = 1;
+      const i = p * 4;
+      const dist = Math.hypot(d[i] - bg[0], d[i + 1] - bg[1], d[i + 2] - bg[2]);
+      if (dist > SOFT) continue;          // design ka pixel — chhor do
+
+      if (dist <= HARD) {
+        d[i + 3] = 0;
+      } else {
+        // Edge pixel: alpha nikalo aur background ka rang mix se hatao
+        const a = (dist - HARD) / (SOFT - HARD);
+        for (let k = 0; k < 3; k++) {
+          const v = (d[i + k] - bg[k] * (1 - a)) / a;
+          d[i + k] = Math.max(0, Math.min(255, Math.round(v)));
+        }
+        d[i + 3] = Math.round(d[i + 3] * a);
+        continue;                         // edge par ruk jao, andar na jao
+      }
+      const x = p % w, y = (p / w) | 0;
+      if (x > 0) stack.push(p - 1);
+      if (x < w - 1) stack.push(p + 1);
+      if (y > 0) stack.push(p - w);
+      if (y < h - 1) stack.push(p + w);
+    }
+
+    // Design ke andar band hisse (jaise "O", "A" ke andar) jo bilkul background rang hain
+    // aur kaafi bare hain, unhein bhi transparent karo. Chhote hisse (aankh ki chamak waghera) safe.
+    const minArea = Math.max(400, Math.floor(w * h * 0.0004));
+    const seen = new Uint8Array(w * h);
+    for (let p = 0; p < w * h; p++) {
+      if (seen[p] || d[p * 4 + 3] === 0) continue;
+      const i0 = p * 4;
+      if (Math.hypot(d[i0] - bg[0], d[i0 + 1] - bg[1], d[i0 + 2] - bg[2]) > HARD) { seen[p] = 1; continue; }
+      const region = [];
+      const st = [p];
+      seen[p] = 1;
+      while (st.length) {
+        const q = st.pop();
+        region.push(q);
+        const x = q % w, y = (q / w) | 0;
+        const nb = [x > 0 ? q - 1 : -1, x < w - 1 ? q + 1 : -1, y > 0 ? q - w : -1, y < h - 1 ? q + w : -1];
+        for (const n of nb) {
+          if (n < 0 || seen[n] || d[n * 4 + 3] === 0) continue;
+          const j = n * 4;
+          if (Math.hypot(d[j] - bg[0], d[j + 1] - bg[1], d[j + 2] - bg[2]) <= HARD) { seen[n] = 1; st.push(n); }
+        }
+      }
+      if (region.length >= minArea) for (const q of region) d[q * 4 + 3] = 0;
+    }
+  }
+
+  // ---------- Khali kinare kaato ----------
+  function trim(c) {
+    const w = c.width, h = c.height, d = c.getContext("2d").getImageData(0, 0, w, h).data;
     let top = h, left = w, right = -1, bottom = -1;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      if (d[(y * w + x) * 4 + 3] > 8) {
+      if (d[(y * w + x) * 4 + 3] > 10) {
         if (x < left) left = x; if (x > right) right = x;
         if (y < top) top = y; if (y > bottom) bottom = y;
       }
@@ -99,7 +192,7 @@
     return out;
   }
 
-  // 4500x5400 transparent canvas par center mein fit karo
+  // ---------- 4500x5400 transparent canvas par center ----------
   function fit(src) {
     const out = document.createElement("canvas");
     out.width = OUT_W; out.height = OUT_H;
@@ -113,25 +206,47 @@
     return new Promise((res) => out.toBlob(res, "image/png"));
   }
 
+  async function aiRemove(file) {
+    if (!lib) {
+      statusEl.textContent = "Pehli dafa AI load ho raha hai, 1-2 minute wait karein...";
+      lib = await import(BG_LIB);
+    }
+    statusEl.textContent = "AI se background remove ho raha hai...";
+    const blob = await lib.removeBackground(file, {
+      model: "isnet",
+      output: { format: "image/png" },
+      progress: (key, cur, tot) => {
+        if (key.startsWith("fetch") && tot) statusEl.textContent = `Pehli dafa AI load ho raha hai: ${Math.round(cur / tot * 100)}%`;
+      }
+    });
+    return toCanvas(await loadImage(blob));
+  }
+
   async function run(file) {
     if (!file.type.startsWith("image/")) return;
     busy = true;
     preview.classList.add("hidden");
     downloadBtn.classList.add("hidden");
     try {
-      if (!lib) {
-        statusEl.textContent = "Pehli dafa load ho raha hai, 1-2 minute wait karein...";
-        lib = await import(BG_LIB);
+      statusEl.textContent = "Design check ho raha hai...";
+      let canvas = toCanvas(await loadImage(file));
+      const ctx = canvas.getContext("2d");
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const bgInfo = detectSolidBg(imgData.data, canvas.width, canvas.height);
+
+      if (bgInfo.type === "solid") {
+        statusEl.textContent = "Background remove ho raha hai...";
+        await new Promise(r => setTimeout(r, 30));
+        removeSolidBg(imgData.data, canvas.width, canvas.height, bgInfo.bg);
+        ctx.putImageData(imgData, 0, 0);
+      } else if (bgInfo.type === "complex") {
+        canvas = await aiRemove(file);
       }
-      statusEl.textContent = "Background remove ho raha hai...";
-      const noBg = await lib.removeBackground(file, {
-        output: { format: "image/png" },
-        progress: (key, cur, tot) => {
-          if (key.startsWith("fetch") && tot) statusEl.textContent = `Pehli dafa load ho raha hai: ${Math.round(cur / tot * 100)}%`;
-        }
-      });
+      // "transparent" = pehle se saaf, kuch na karo
+
       statusEl.textContent = "4500 × 5400 bana raha hai...";
-      outBlob = await fit(trim(await loadImage(noBg)));
+      await new Promise(r => setTimeout(r, 30));
+      outBlob = await fit(trim(canvas));
       outName = file.name.replace(/\.[^.]+$/, "") + "_4500x5400.png";
       if (previewImg.src) URL.revokeObjectURL(previewImg.src);
       previewImg.src = URL.createObjectURL(outBlob);
