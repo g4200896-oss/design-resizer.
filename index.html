@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design BG Remover + 4500x5400 Resizer</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #0f1115; color: #e8e8ea; }
+  header { padding: 20px 24px; border-bottom: 1px solid #23262d; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: #9aa0a6; font-size: 14px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .panel { background: #171a21; border: 1px solid #23262d; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+  .drop { border: 2px dashed #3a3f4b; border-radius: 12px; padding: 36px; text-align: center; cursor: pointer; transition: .2s; }
+  .drop.over { border-color: #4f8cff; background: #1b2233; }
+  .drop strong { color: #4f8cff; }
+  .row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end; }
+  label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #b5bac1; }
+  select, input[type=number], input[type=color] { background: #0f1115; color: #e8e8ea; border: 1px solid #3a3f4b; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  input[type=color] { padding: 2px; width: 60px; height: 38px; }
+  input[type=range] { width: 160px; }
+  .chk { flex-direction: row; align-items: center; gap: 8px; }
+  button { background: #4f8cff; color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: #2a2f3a; }
+  .hint { font-size: 12px; color: #7d838c; margin-top: 10px; }
+  #status { font-size: 14px; color: #9aa0a6; margin-top: 12px; min-height: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .card { background: #171a21; border: 1px solid #23262d; border-radius: 12px; overflow: hidden; }
+  .thumb { aspect-ratio: 4500 / 5400; background-color: #fff;
+    background-image: linear-gradient(45deg,#ccc 25%,transparent 25%),linear-gradient(-45deg,#ccc 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#ccc 75%),linear-gradient(-45deg,transparent 75%,#ccc 75%);
+    background-size: 20px 20px; background-position: 0 0,0 10px,10px -10px,-10px 0;
+    display: flex; align-items: center; justify-content: center; }
+  .thumb.dark { background-color: #222; background-image: linear-gradient(45deg,#333 25%,transparent 25%),linear-gradient(-45deg,#333 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#333 75%),linear-gradient(-45deg,transparent 75%,#333 75%); }
+  .thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .thumb .wait { color: #555; font-size: 13px; }
+  .meta { padding: 10px 12px; font-size: 13px; }
+  .meta .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
+  .meta .warn { color: #f0b429; font-size: 12px; margin-bottom: 8px; }
+  .meta .err { color: #ff6b6b; font-size: 12px; margin-bottom: 8px; }
+  .meta button { padding: 7px 12px; font-size: 13px; width: 100%; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Design Background Remover + 4500 × 5400 Resizer</h1>
+  <p>Design upload karein → background remove → transparent PNG 4500×5400 (TeePublic / POD ready). Sab kuch aapke browser mein hota hai, koi file server par nahi jati.</p>
+</header>
+
+<main>
+  <div class="panel">
+    <div class="drop" id="drop">
+      <div>Designs yahan <strong>drag &amp; drop</strong> karein ya <strong>click</strong> kar ke select karein</div>
+      <div class="hint">PNG / JPG / WEBP — ek saath kai files bhi chal jati hain</div>
+      <input type="file" id="fileInput" accept="image/*" multiple hidden>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <label>Background remove method
+        <select id="method">
+          <option value="ai">AI (photos / complex background)</option>
+          <option value="color">Color remove (solid white/black background)</option>
+          <option value="none">Remove na karein (already transparent)</option>
+        </select>
+      </label>
+
+      <label id="colorWrap" class="hidden">Background color
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="color" id="bgColor" value="#ffffff">
+          <span class="chk" style="display:flex"><input type="checkbox" id="autoColor" checked> Auto (corner se)</span>
+        </div>
+      </label>
+
+      <label id="tolWrap" class="hidden">Tolerance: <span id="tolVal">30</span>
+        <input type="range" id="tolerance" min="1" max="120" value="30">
+      </label>
+
+      <label id="floodWrap" class="chk hidden"><input type="checkbox" id="floodOnly" checked> Sirf bahar wala background (design ke andar ka color safe)</label>
+
+      <label>Padding (%)
+        <input type="number" id="padding" min="0" max="40" value="3" style="width:80px">
+      </label>
+
+      <label>Position
+        <select id="position">
+          <option value="center">Center</option>
+          <option value="top">Top (shirt chest)</option>
+        </select>
+      </label>
+
+      <label class="chk"><input type="checkbox" id="trim" checked> Khali kinare trim karein</label>
+      <label class="chk"><input type="checkbox" id="darkPreview"> Dark preview</label>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <button id="processBtn" disabled>Process karein</button>
+      <button id="zipBtn" class="ghost" disabled>Sab download (ZIP)</button>
+      <button id="clearBtn" class="ghost">Clear</button>
+    </div>
+    <div id="status"></div>
+    <div class="hint">AI method pehli dafa model download karta hai (~40MB), is liye pehli image mein thora time lagta hai. Baad mein fast ho jata hai.</div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.2/dist/jszip.min.js"></script>
+<script type="module">
+  const OUT_W = 4500, OUT_H = 5400;
+  const BG_LIB = "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm";
+
+  const $ = (id) => document.getElementById(id);
+  const drop = $("drop"), fileInput = $("fileInput"), grid = $("grid"), statusEl = $("status");
+  const processBtn = $("processBtn"), zipBtn = $("zipBtn"), clearBtn = $("clearBtn");
+  const method = $("method");
+
+  let items = []; // { file, card, outBlob, outName }
+  let bgLib = null;
+
+  // ---------- UI ----------
+  function updateMethodUI() {
+    const isColor = method.value === "color";
+    $("colorWrap").classList.toggle("hidden", !isColor);
+    $("tolWrap").classList.toggle("hidden", !isColor);
+    $("floodWrap").classList.toggle("hidden", !isColor);
+  }
+  method.addEventListener("change", updateMethodUI);
+  $("tolerance").addEventListener("input", (e) => $("tolVal").textContent = e.target.value);
+  $("darkPreview").addEventListener("change", (e) => {
+    document.querySelectorAll(".thumb").forEach(t => t.classList.toggle("dark", e.target.checked));
+  });
+
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); });
+  fileInput.addEventListener("change", (e) => { addFiles(e.target.files); fileInput.value = ""; });
+
+  clearBtn.addEventListener("click", () => {
+    items.forEach(it => it.previewUrl && URL.revokeObjectURL(it.previewUrl));
+    items = []; grid.innerHTML = ""; statusEl.textContent = "";
+    processBtn.disabled = true; zipBtn.disabled = true;
+  });
+
+  function addFiles(fileList) {
+    for (const file of fileList) {
+      if (!file.type.startsWith("image/")) continue;
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="thumb ${$("darkPreview").checked ? "dark" : ""}"><span class="wait">Ready</span></div>
+        <div class="meta"><div class="name"></div><div class="note"></div><button disabled>Download PNG</button></div>`;
+      card.querySelector(".name").textContent = file.name;
+      grid.appendChild(card);
+      const item = { file, card, outBlob: null, outName: file.name.replace(/\.[^.]+$/, "") + "_4500x5400.png" };
+      card.querySelector("button").addEventListener("click", () => downloadBlob(item.outBlob, item.outName));
+      items.push(item);
+    }
+    processBtn.disabled = items.length === 0;
+  }
+
+  // ---------- Helpers ----------
+  function loadImage(src) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = rej;
+      img.src = src;
+    });
+  }
+
+  function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  function imageToCanvas(img) {
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    c.getContext("2d").drawImage(img, 0, 0);
+    return c;
+  }
+
+  // Corner pixels ka average = background color
+  function detectCornerColor(ctx, w, h) {
+    const pts = [[0,0],[w-1,0],[0,h-1],[w-1,h-1],[Math.floor(w/2),0],[0,Math.floor(h/2)]];
+    let r=0,g=0,b=0;
+    for (const [x,y] of pts) { const d = ctx.getImageData(x,y,1,1).data; r+=d[0]; g+=d[1]; b+=d[2]; }
+    return [r/pts.length, g/pts.length, b/pts.length];
+  }
+
+  // Color-key removal (soft edges ke saath)
+  function removeColor(canvas, rgb, tol, floodOnly) {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height;
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const d = imgData.data;
+    const soft = tol * 0.5;
+    const dist = (i) => Math.sqrt((d[i]-rgb[0])**2 + (d[i+1]-rgb[1])**2 + (d[i+2]-rgb[2])**2);
+
+    const applyAlpha = (i, dd) => {
+      if (dd <= tol) d[i+3] = 0;
+      else if (dd <= tol + soft) d[i+3] = Math.min(d[i+3], Math.round(255 * (dd - tol) / soft));
+    };
+
+    if (!floodOnly) {
+      for (let i = 0; i < d.length; i += 4) applyAlpha(i, dist(i));
+    } else {
+      // Kinaron se flood fill — sirf bahar wala background remove hoga
+      const visited = new Uint8Array(w * h);
+      const stack = [];
+      for (let x = 0; x < w; x++) { stack.push(x, (h-1)*w + x); }
+      for (let y = 0; y < h; y++) { stack.push(y*w, y*w + w - 1); }
+      while (stack.length) {
+        const p = stack.pop();
+        if (visited[p]) continue;
+        visited[p] = 1;
+        const i = p * 4;
+        const dd = dist(i);
+        if (dd > tol + soft) continue;
+        applyAlpha(i, dd);
+        if (dd > tol) continue; // soft edge par ruk jao
+        const x = p % w, y = (p / w) | 0;
+        if (x > 0) stack.push(p - 1);
+        if (x < w - 1) stack.push(p + 1);
+        if (y > 0) stack.push(p - w);
+        if (y < h - 1) stack.push(p + w);
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return canvas;
+  }
+
+  // Transparent kinare kaat do
+  function trimCanvas(canvas) {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height;
+    const d = ctx.getImageData(0, 0, w, h).data;
+    let top = h, left = w, right = -1, bottom = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (d[(y*w + x)*4 + 3] > 8) {
+          if (x < left) left = x; if (x > right) right = x;
+          if (y < top) top = y; if (y > bottom) bottom = y;
+        }
+      }
+    }
+    if (right < 0) return canvas; // poori image khali
+    const tw = right - left + 1, th = bottom - top + 1;
+    const out = document.createElement("canvas");
+    out.width = tw; out.height = th;
+    out.getContext("2d").drawImage(canvas, left, top, tw, th, 0, 0, tw, th);
+    return out;
+  }
+
+  // 4500x5400 transparent canvas par fit karo
+  function fitToOutput(src, paddingPct, position) {
+    const out = document.createElement("canvas");
+    out.width = OUT_W; out.height = OUT_H;
+    const ctx = out.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    const pad = Math.round(OUT_W * paddingPct / 100);
+    const boxW = OUT_W - pad*2, boxH = OUT_H - pad*2;
+    const scale = Math.min(boxW / src.width, boxH / src.height);
+    const dw = Math.round(src.width * scale), dh = Math.round(src.height * scale);
+    const dx = Math.round((OUT_W - dw) / 2);
+    const dy = position === "top" ? pad : Math.round((OUT_H - dh) / 2);
+    ctx.drawImage(src, dx, dy, dw, dh);
+    return { canvas: out, scale };
+  }
+
+  function canvasToBlob(canvas) {
+    return new Promise((res) => canvas.toBlob(res, "image/png"));
+  }
+
+  function downloadBlob(blob, name) {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  async function getBgLib() {
+    if (!bgLib) {
+      statusEl.textContent = "AI model load ho raha hai (pehli dafa thora time lagega)...";
+      bgLib = await import(BG_LIB);
+    }
+    return bgLib;
+  }
+
+  // ---------- Main process ----------
+  async function processItem(item, idx, total) {
+    const thumb = item.card.querySelector(".thumb");
+    const note = item.card.querySelector(".note");
+    const btn = item.card.querySelector("button");
+    thumb.innerHTML = `<span class="wait">Processing...</span>`;
+    note.innerHTML = "";
+    btn.disabled = true;
+
+    const m = method.value;
+    let canvas;
+
+    if (m === "ai") {
+      const lib = await getBgLib();
+      statusEl.textContent = `(${idx+1}/${total}) AI background remove: ${item.file.name}`;
+      const blob = await lib.removeBackground(item.file, {
+        output: { format: "image/png" },
+        progress: (key, cur, tot) => {
+          if (key.startsWith("fetch") && tot) statusEl.textContent = `Model download: ${Math.round(cur/tot*100)}%`;
+        }
+      });
+      const url = URL.createObjectURL(blob);
+      canvas = imageToCanvas(await loadImage(url));
+      URL.revokeObjectURL(url);
+    } else {
+      statusEl.textContent = `(${idx+1}/${total}) Processing: ${item.file.name}`;
+      const url = URL.createObjectURL(item.file);
+      canvas = imageToCanvas(await loadImage(url));
+      URL.revokeObjectURL(url);
+      if (m === "color") {
+        const ctx = canvas.getContext("2d");
+        const rgb = $("autoColor").checked ? detectCornerColor(ctx, canvas.width, canvas.height) : hexToRgb($("bgColor").value);
+        removeColor(canvas, rgb, Number($("tolerance").value), $("floodOnly").checked);
+      }
+    }
+
+    if ($("trim").checked) canvas = trimCanvas(canvas);
+
+    const { canvas: out, scale } = fitToOutput(canvas, Number($("padding").value) || 0, $("position").value);
+    item.outBlob = await canvasToBlob(out);
+
+    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    item.previewUrl = URL.createObjectURL(item.outBlob);
+    thumb.innerHTML = `<img src="${item.previewUrl}" alt="">`;
+    if (scale > 2) {
+      note.innerHTML = `<div class="warn">Original choti hai (${canvas.width}×${canvas.height}) — ${scale.toFixed(1)}x bari ki gayi, print thora blur ho sakta hai.</div>`;
+    }
+    btn.disabled = false;
+  }
+
+  processBtn.addEventListener("click", async () => {
+    processBtn.disabled = true; zipBtn.disabled = true; clearBtn.disabled = true;
+    let done = 0;
+    for (let i = 0; i < items.length; i++) {
+      try {
+        await processItem(items[i], i, items.length);
+        done++;
+      } catch (err) {
+        console.error(err);
+        items[i].card.querySelector(".thumb").innerHTML = `<span class="wait">Error</span>`;
+        items[i].card.querySelector(".note").innerHTML = `<div class="err">Error: ${err.message || err}</div>`;
+      }
+    }
+    statusEl.textContent = `Done: ${done}/${items.length} designs ready (4500×5400 PNG).`;
+    processBtn.disabled = false; clearBtn.disabled = false;
+    zipBtn.disabled = done === 0;
+  });
+
+  zipBtn.addEventListener("click", async () => {
+    const zip = new JSZip();
+    items.forEach(it => it.outBlob && zip.file(it.outName, it.outBlob));
+    statusEl.textContent = "ZIP ban rahi hai...";
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(blob, "designs_4500x5400.zip");
+    statusEl.textContent = "ZIP download ho gayi.";
+  });
+
+  updateMethodUI();
+</script>
+</body>
+</html>
